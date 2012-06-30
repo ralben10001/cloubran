@@ -6,7 +6,7 @@ SHVER = 1
 OS = $(shell uname)
 #LIBS = -lblas
 
-all: train predict serverML
+all: serverML
 
 lib: linear.o tron.o blas/blas.a
 	if [ "$(OS)" = "Darwin" ]; then \
@@ -30,5 +30,4 @@ blas/blas.a: blas/*.c blas/*.h
 
 clean:
 	make -C blas clean
-	make -C matlab clean
-	rm -f *~ tron.o linear.o train predict liblinear.so.$(SHVER)
+	rm -f *~ tron.o linear.o serverML liblinear.so.$(SHVER)
