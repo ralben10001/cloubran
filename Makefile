@@ -19,12 +19,6 @@ lib: linear.o tron.o blas/blas.a
 serverML: tron.o linear.o serverML.cpp blas/blas.a
 	$(CXX) $(CFLAGS) -o serverML serverML.cpp tron.o linear.o $(LIBS)
 
-train: tron.o linear.o train.c blas/blas.a
-	$(CXX) $(CFLAGS) -o train train.c tron.o linear.o $(LIBS)
-
-predict: tron.o linear.o predict.c blas/blas.a
-	$(CXX) $(CFLAGS) -o predict predict.c tron.o linear.o $(LIBS)
-
 tron.o: tron.cpp tron.h
 	$(CXX) $(CFLAGS) -c -o tron.o tron.cpp
 
