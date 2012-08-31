@@ -690,10 +690,6 @@ void Solver_MCSVM_CS::Solve(double *w)
 		}
 
 		iter++;
-		if(iter % 10 == 0)
-		{
-			info(".");
-		}
 
 		if(stopping < eps_shrink)
 		{
@@ -704,7 +700,6 @@ void Solver_MCSVM_CS::Solve(double *w)
 				active_size = l;
 				for(i=0;i<l;i++)
 					active_size_i[i] = nr_class;
-				info("*");
 				eps_shrink = max(eps_shrink/2, eps);
 				start_from_all = true;
 			}
@@ -731,8 +726,6 @@ void Solver_MCSVM_CS::Solve(double *w)
 	}
 	for(i=0;i<l;i++)
 		v -= alpha[i*nr_class+(int)prob->y[i]];
-	info("Objective value = %lf\n",v);
-	info("nSV = %d\n",nSV);
 
 	delete [] alpha;
 	delete [] alpha_new;
@@ -775,8 +768,8 @@ void Solver_MCSVM_CS::Solve(double *w)
 #define GETI(i) (y[i]+1)
 // To support weights for instances, use GETI(i) (i)
 
-static void solve_l2r_l1l2_svc(
-	const problem *prob, double *w, double eps, 
+static void solve_l2r_l1l2_svc( problem* mainprob,
+	problem *prob, int ind, double *w, double eps, 
 	double Cp, double Cn, int solver_type)
 {
 	int l = prob->l;
@@ -915,8 +908,6 @@ static void solve_l2r_l1l2_svc(
 		}
 
 		iter++;
-		if(iter % 10 == 0)
-			info(".");
 
 		if(PGmax_new - PGmin_new <= eps)
 		{
@@ -925,7 +916,6 @@ static void solve_l2r_l1l2_svc(
 			else
 			{
 				active_size = l;
-				info("*");
 				PGmax_old = INF;
 				PGmin_old = -INF;
 				continue;
@@ -939,24 +929,27 @@ static void solve_l2r_l1l2_svc(
 			PGmin_old = -INF;
 	}
 
-	info("\noptimization finished, #iter = %d\n",iter);
-	if (iter >= max_iter)
-		info("\nWARNING: reaching max number of iterations\nUsing -s 2 may be faster (also see FAQ)\n\n");
-
 	// calculate objective value
 
 	double v = 0;
 	int nSV = 0;
 	for(i=0; i<w_size; i++)
 		v += w[i]*w[i];
+	mainprob->SV[ind] = new int[l];
+	int j = 0;
 	for(i=0; i<l; i++)
 	{
 		v += alpha[i]*(alpha[i]*diag[GETI(i)] - 2);
-		if(alpha[i] > 0)
+		if(alpha[i] > 0) {
 			++nSV;
+			mainprob->SV[ind][j++] = i;
+		} else if (rand() %100 < 1) {
+			++nSV;
+			mainprob->SV[ind][j++] = i;
+		}
 	}
-	info("Objective value = %lf\n",v/2);
-	info("nSV = %d\n",nSV);
+	mainprob->nSV[ind] = nSV;
+	//info("nSV = %d\n",nSV);
 
 	delete [] QD;
 	delete [] alpha;
@@ -1153,8 +1146,6 @@ static void solve_l2r_l1l2_svr(
 		if(iter == 0)
 			Gnorm1_init = Gnorm1_new;
 		iter++;
-		if(iter % 10 == 0)
-			info(".");
 
 		if(Gnorm1_new <= eps*Gnorm1_init)
 		{
@@ -1163,7 +1154,6 @@ static void solve_l2r_l1l2_svr(
 			else
 			{
 				active_size = l;
-				info("*");
 				Gmax_old = INF;
 				continue;
 			}
@@ -1172,9 +1162,6 @@ static void solve_l2r_l1l2_svr(
 		Gmax_old = Gmax_new;
 	}
 
-	info("\noptimization finished, #iter = %d\n", iter);
-	if(iter >= max_iter)
-		info("\nWARNING: reaching max number of iterations\nUsing -s 11 may be faster\n\n");
 
 	// calculate objective value
 	double v = 0;
@@ -1188,9 +1175,6 @@ static void solve_l2r_l1l2_svr(
 		if(beta[i] != 0)
 			nSV++;
 	}
-
-	info("Objective value = %lf\n", v);
-	info("nSV = %d\n",nSV);
 
 	delete [] beta;
 	delete [] QD;
@@ -1345,8 +1329,6 @@ void solve_l2r_lr_dual(const problem *prob, double *w, double eps, double Cp, do
 		}
 
 		iter++;
-		if(iter % 10 == 0)
-			info(".");
 
 		if(Gmax < eps) 
 			break;
@@ -1356,9 +1338,6 @@ void solve_l2r_lr_dual(const problem *prob, double *w, double eps, double Cp, do
 
 	}
 
-	info("\noptimization finished, #iter = %d\n",iter);
-	if (iter >= max_iter)
-		info("\nWARNING: reaching max number of iterations\nUsing -s 0 may be faster (also see FAQ)\n\n");
 
 	// calculate objective value
 	
@@ -2160,7 +2139,7 @@ static void group_classes(const problem *prob, int *nr_class_ret, int **label_re
 	free(data_label);
 }
 
-static void train_one(const problem *prob, const parameter *param, double *w, double Cp, double Cn)
+static void train_one(problem *mainprob,problem *prob, int ind, const parameter *param, double *w, double Cp, double Cn)
 {
 	double eps=param->eps;
 	int pos = 0;
@@ -2212,10 +2191,10 @@ static void train_one(const problem *prob, const parameter *param, double *w, do
 			break;
 		}
 		case L2R_L2LOSS_SVC_DUAL:
-			solve_l2r_l1l2_svc(prob, w, eps, Cp, Cn, L2R_L2LOSS_SVC_DUAL);
+			solve_l2r_l1l2_svc(mainprob,prob, ind,w, eps, Cp, Cn, L2R_L2LOSS_SVC_DUAL);
 			break;
 		case L2R_L1LOSS_SVC_DUAL:
-			solve_l2r_l1l2_svc(prob, w, eps, Cp, Cn, L2R_L1LOSS_SVC_DUAL);
+			solve_l2r_l1l2_svc(mainprob,prob, ind,w, eps, Cp, Cn, L2R_L1LOSS_SVC_DUAL);
 			break;
 		case L1R_L2LOSS_SVC:
 		{
@@ -2272,7 +2251,7 @@ static void train_one(const problem *prob, const parameter *param, double *w, do
 //
 // Interface functions
 //
-model* train(const problem *prob, const parameter *param)
+model* train(problem *prob, const parameter *param)
 {
 	int i,j;
 	int l = prob->l;
@@ -2294,7 +2273,7 @@ model* train(const problem *prob, const parameter *param)
 		model_->w = Malloc(double, w_size);
 		model_->nr_class = 2;
 		model_->label = NULL;
-		train_one(prob, param, &model_->w[0], 0, 0);
+		train_one(prob, prob,0,param, &model_->w[0], 0, 0);
 	}
 	else
 	{
@@ -2329,78 +2308,73 @@ model* train(const problem *prob, const parameter *param)
 
 		// constructing the subproblem
 		feature_node **x = Malloc(feature_node *,l);
-		for(i=0;i<l;i++)
-			x[i] = prob->x[perm[i]];
+		int* y = new int[l];
+		for(i=0;i<l;i++) {
+			x[i] = prob->x[i];
+			y[i] = prob->y[i];
+		}
 
 		int k;
-		problem sub_prob;
-		sub_prob.l = l;
-		sub_prob.n = n;
-		sub_prob.x = Malloc(feature_node *,sub_prob.l);
-		sub_prob.y = Malloc(double,sub_prob.l);
 
-		for(k=0; k<sub_prob.l; k++)
-			sub_prob.x[k] = x[k];
 
 		// multi-class svm by Crammer and Singer
-		if(param->solver_type == MCSVM_CS)
+		
+		model_->w=Malloc(double, w_size*nr_class);
+		double *w=Malloc(double, w_size);
+		for(i=0;i<nr_class;i++)
 		{
-			model_->w=Malloc(double, n*nr_class);
-			for(i=0;i<nr_class;i++)
-				for(j=start[i];j<start[i]+count[i];j++)
-					sub_prob.y[j] = i;
-			Solver_MCSVM_CS Solver(&sub_prob, nr_class, weighted_C, param->eps);
-			Solver.Solve(model_->w);
-		}
-		else
-		{
-			if(nr_class == 2)
-			{
-				model_->w=Malloc(double, w_size);
+			problem sub_prob;
+			if(prob->SV[i] != NULL) {
+				sub_prob.l = prob->nSV[i]+1;
+				sub_prob.n = n;
+				sub_prob.x = Malloc(feature_node *,sub_prob.l);
+				sub_prob.y = Malloc(double,sub_prob.l);
+				int si = start[i];
+				int ei = si+count[i];
 
-				int e0 = start[0]+count[0];
-				k=0;
-				for(; k<e0; k++)
-					sub_prob.y[k] = +1;
-				for(; k<sub_prob.l; k++)
-					sub_prob.y[k] = -1;
-
-				train_one(&sub_prob, param, &model_->w[0], weighted_C[0], weighted_C[1]);
-			}
-			else
-			{
-				model_->w=Malloc(double, w_size*nr_class);
-				double *w=Malloc(double, w_size);
-				for(i=0;i<nr_class;i++)
-				{
-					int si = start[i];
-					int ei = si+count[i];
-
-					k=0;
-					for(; k<si; k++)
-						sub_prob.y[k] = -1;
-					for(; k<ei; k++)
-						sub_prob.y[k] = +1;
-					for(; k<sub_prob.l; k++)
-						sub_prob.y[k] = -1;
-
-					train_one(&sub_prob, param, w, weighted_C[i], param->C);
-
-					for(int j=0;j<w_size;j++)
-						model_->w[j*nr_class+i] = w[j];
+				for(k=0; k<sub_prob.l; k++) {
+					if (k == sub_prob.l-1) {
+						sub_prob.x[k] = prob->x[prob->l-1];
+						if (prob->y[prob->l-1] == label[i])
+							sub_prob.y[k] = +1;
+						else
+							sub_prob.y[k] = -1;
+					} else {
+						sub_prob.x[k] = x[prob->SV[i][k]];
+						if (y[prob->SV[i][k]] == label[i])
+							sub_prob.y[k] = +1;
+						else
+							sub_prob.y[k] = -1;
+					}
 				}
-				free(w);
+
+			} else {
+				sub_prob.l = l;
+				sub_prob.n = n;
+				sub_prob.x = Malloc(feature_node *,sub_prob.l);
+				sub_prob.y = Malloc(double,sub_prob.l);
+
+				for(k=0; k<sub_prob.l; k++) {
+					sub_prob.x[k] = x[k];
+					if (y[k] == label[i])
+						sub_prob.y[k] = +1;
+					else
+						sub_prob.y[k] = -1;
+				}
 			}
 
+			train_one(prob,&sub_prob, i,param, w, weighted_C[i], param->C);
+			for(int j=0;j<w_size;j++)
+				model_->w[j*nr_class+i] = w[j];
+			free(sub_prob.x);
+			free(sub_prob.y);
 		}
-
+		free(w);
 		free(x);
 		free(label);
 		free(start);
 		free(count);
 		free(perm);
-		free(sub_prob.x);
-		free(sub_prob.y);
 		free(weighted_C);
 	}
 	return model_;
@@ -2573,7 +2547,7 @@ int save_model(const char *model_file_name, const struct model *model_)
 	FILE *fp = fopen(model_file_name,"w");
 	if(fp==NULL) return -1;
 
-	char *old_locale = strdup(setlocale(LC_ALL, NULL));
+	char *old_locale = _strdup(setlocale(LC_ALL, NULL));
 	setlocale(LC_ALL, "C");
 
 	int nr_w;
@@ -2628,7 +2602,7 @@ struct model *load_model(const char *model_file_name)
 
 	model_->label = NULL;
 	
-	char *old_locale = strdup(setlocale(LC_ALL, NULL));
+	char *old_locale = _strdup(setlocale(LC_ALL, NULL));
 	setlocale(LC_ALL, "C");
 
 	char cmd[81];

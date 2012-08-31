@@ -14,6 +14,7 @@ struct feature_node *x;
 typedef struct svmlines {
 	int* data;
 	int classifier;
+	int classifier2;
 } svmlines;
 int max_nr_attr = 64;
 
@@ -81,11 +82,11 @@ static char* readline(FILE *input)
 	}
 	return line;
 }
+int correct = 0;
+int total = 0;
 
-void do_predict(svmlines* classifier, FILE *output, struct model* model_, int startloc, int numlines, int numfeatures)
+void do_predict(svmlines* classifier, FILE *output, struct model* model_, int startloc, int numlines, int numfeatures, int* prediction)
 {
-	int correct = 0;
-	int total = 0;
 
 	int nr_class=get_nr_class(model_);
 	double *prob_estimates=NULL;
@@ -137,6 +138,7 @@ void do_predict(svmlines* classifier, FILE *output, struct model* model_, int st
 			x[i].index = j+1;
 			
 			x[i].value = classifier[linesread].data[j];
+			i++;
 			
 		}
 
@@ -161,25 +163,23 @@ void do_predict(svmlines* classifier, FILE *output, struct model* model_, int st
 		{
 			predict_label = (int)predict(model_,x);
 			fprintf(output,"%d %d\n",predict_label, target_label);
+			*prediction = predict_label;
 		}
 
 		if(predict_label == target_label)
 			++correct;
 		++total;
 	}
-	printf("Accuracy = %g%% (%d/%d)\n",(double) correct/total*100,correct,total);
 	if(flag_predict_probability)
 		free(prob_estimates);
 }
 
 
 void parse_command_line(int argc, char **argv);
-void read_problem( svmlines* classifier, int numlines,int numfeatures);
-void do_cross_validation();
+void read_problem( svmlines* classifier, int numlines,int numfeatures, problem* prob, int pred);
 
 struct feature_node *x_space;
 struct parameter param;
-struct problem prob;
 int flag_cross_validation;
 int nr_fold;
 double bias;
@@ -188,101 +188,99 @@ int main(int argc, char *argv[])
 	int* data;
 	int * net;
 	int datalen,netlen;
+	struct problem prob, prob2;
+	int numVMs = 1;
+	if (argc > 1) {
+		numVMs = atoi(argv[1]);
+	}
 	FILE* in = fopen("data.in","r");
 	FILE* in2 = fopen("net.in","r");
-	fscanf(in,"%d",&datalen);
-	fscanf(in2,"%d",&netlen);
-	data = new int[datalen];
-	net = new int[netlen];
-	for (int i = 0; i < datalen; i++) {
-		fscanf(in,"%d",&data[i]);
-	}
-	for (int i = 0; i < netlen; i++) {
-		fscanf(in,"%d",&net[i]);
-	}
-	int n = 3;
-	svmlines* classifier = new svmlines[datalen-n];
-	for (int i = 0; i < datalen-n; i++) {
-		classifier[i].classifier = data[i+n]-data[i+n-1];
-		classifier[i].data = new int[2*n];
-		for (int j = 0; j < n; j++) {
-			classifier[i].data[j] = data[i+j];
+	FILE *output = fopen("test.out","w");
+	char VMname[20];
+	for (int ind = 0; ind < numVMs; ind++) {
+		fscanf(in,"%s",VMname);
+		fscanf(in,"%d",&datalen);
+		fscanf(in2,"%d",&netlen);
+		fprintf(output,"%s ", VMname);
+		data = new int[datalen];
+		net = new int[netlen];	
+		for (int i = 0; i < datalen; i++) {
+			fscanf(in,"%d",&data[i]);
 		}
-		for (int j = 0; j < n; j++) {
-			classifier[i].data[j+n] = net[i+j];
+		for (int i = 0; i < netlen; i++) {
+			fscanf(in2,"%d",&net[i]);
 		}
-	}
+		int n = 3;
+		int numlines = datalen-n;
+		int numruns = 1;
+		prob.numpos = 0;
+		svmlines* classifier = new svmlines[datalen-n];
+		for (int i = 0; i < datalen-n; i++) {
+			if (data[i+n]  > data[i+n-1]) {
+				classifier[i].classifier = 1;
+				if (i < numlines)
+					prob.numpos++;
+			}
+			else
+				classifier[i].classifier = -1;
+			if (abs(data[i+n] -data[i+n-1]) > 5)
+				classifier[i].classifier2 = 1;
+			else
+				classifier[i].classifier2 = -1;
+			classifier[i].data = new int[2*n];
+			classifier[i].data[0] = data[i];
+			for (int j = 1; j < n; j++) {
+				classifier[i].data[j] = data[i+j] - data[i+j-1];
+			}
+				classifier[i].data[n] = 0;
+			for (int j = 1; j < n; j++) {
+				classifier[i].data[n+j] = 0;//classifier[i].data[j]-classifier[i].data[j-1];
+			}
+		}
 	
-	FILE *output;
-	int numlines = 5;
-	int numruns = 5;
-	output = fopen("test.out","w");
-	if (argc > 1) {
-		numlines = atoi(argv[3]);
-		numruns = atoi(argv[4]);
-	}
+		prob.SV = new int*[101];
+		prob.nSV = new int[101];
+		for (int i = 0; i < 101; i++)
+			prob.SV[i] = NULL;
 	
-	for (int s = 0; s < numruns; s++) {
-		parse_command_line(argc, argv);
-		read_problem(classifier,numlines+s,2*n);
-		const char *error_msg;
+		for (int s = 0; s < numruns; s++) {
+			parse_command_line(argc, argv);
+			read_problem(classifier,numlines+s-2,2*n,&prob,0);
 
-		error_msg = check_parameter(&prob,&param);
-
-		if(error_msg)
-		{
-			fprintf(stderr,"Error: %s\n",error_msg);
-			exit(1);
-		}
-
-		if(flag_cross_validation)
-		{
-			do_cross_validation();
-		}
-		else
-		{
 			model_=train(&prob, &param);
-		}
 
-		x = (struct feature_node *) malloc(max_nr_attr*sizeof(struct feature_node));
-		do_predict(classifier, output, model_,numlines+s,1,2*n);
-		free_and_destroy_model(&model_);
-		free(line);
-		free(x);
-		free(prob.y);
-		free(prob.x);
-		free(x_space);
-		//free(line);
+			x = (struct feature_node *) malloc(max_nr_attr*sizeof(struct feature_node));
+			int prediction;
+			do_predict(classifier, output, model_,numlines+s-2,1,2*n,&prediction);
+			free(line);
+			free(x);
+			free(prob.y);
+			free(prob.x);
+			free(x_space);
+			read_problem(classifier,numlines+s,2*n,&prob,prediction);
+			free(line);
+			//free(x);
+			free(prob.y);
+			free(prob.x);
+			free(x_space);
+			//free(line);
+			if (classifier[numlines+s].classifier == 1)
+				prob.numpos++;
+			free_and_destroy_model(&model_);
+		}
+		printf("Accuracy = %g%% (%d/%d)\n",(double) correct/total*100,correct,total);
+		fclose(output);
 	}
-	fclose(output);
 	return 0;
 }
 
-void do_cross_validation()
-{
-	int i;
-	int total_correct = 0;
-	double *target = new double(prob.l);
-	FILE* out = fopen("out.txt","w");
-	cross_validation(&prob,&param,nr_fold,target);
-
-	for(i=0;i<prob.l;i++) {
-		fprintf(out, "%d %d\n", target[i], prob.y[i]);
-		printf("%d %d\n",target[i],prob.y[i]);
-		if(target[i] == prob.y[i])
-			++total_correct;
-	}
-	printf("Cross Validation Accuracy = %g%%\n",100.0*total_correct/prob.l);
-	fclose(out);
-	free(target);
-}
 
 void parse_command_line(int argc, char **argv)
 {
 
 	// default values
 	param.solver_type = 2;
-	param.C = 1;
+	param.C = 5;
 	param.eps = INF; // see setting below
 	param.nr_weight = 0;
 	param.weight_label = NULL;
@@ -306,45 +304,61 @@ void parse_command_line(int argc, char **argv)
 }
 
 // read in a problem (in libsvm format)
-void read_problem( svmlines* classifier, int numlines, int numfeatures)
+void read_problem( svmlines* classifier, int numlines, int numfeatures, problem * prob, int pred)
 {
 	int max_index, i;
 	long int elements, j;
+	elements = numlines*(numfeatures+1);
 
-
-	prob.l = numlines;
-	elements = numlines*numfeatures;
+	switch(pred) {
+	case 0:
+		prob->l = numlines;
+		break;
+	case 1:
+		prob->l = prob->numpos;
+		break;
+	case -1:
+		prob->l = numlines-prob->numpos;
+		break;
+	}
+	prob->y = new double[prob->l];
+	prob->x = Malloc(struct feature_node *,prob->l);
+	x_space = Malloc(struct feature_node,elements+prob->l);
 	
-	prob.bias=bias;
-	prob.y = new double[prob.l];
-	prob.x = Malloc(struct feature_node *,prob.l);
-	x_space = Malloc(struct feature_node,elements+prob.l);
+	prob->bias=bias;
 
-	max_index = numfeatures+1; 
-	for(i=0;i<prob.l;i++)
+	max_index = numfeatures; 
+	int s = 0;
+	for(i=0;i<numlines;i++)
 	{ 
-		prob.x[i] = &x_space[i*(numfeatures+1)];
-		prob.y[i] = classifier[i].classifier;
+		if (pred == -classifier[i].classifier)
+			continue;
+		prob->x[s] = &x_space[s*(numfeatures+2)];
+		feature_node* tmp = &x_space[s*(numfeatures+2)];
+		prob->y[s] = classifier[i].classifier;
 
 		for (j=0; j <numfeatures;j++) {
-			x_space[j].index = j+1;
-			x_space[j].value = classifier[i].data[j];
+			tmp[j].index = j+1;
+			tmp[j].value = classifier[i].data[j];
 		}
 
-		if(prob.bias >= 0)
-			x_space[numfeatures+1].value = prob.bias;
+		if(prob->bias >= 0)
+			tmp[numfeatures].value = prob->bias;
 
-		x_space[numfeatures+1].index = -1;
+		tmp[numfeatures+1].index = -1;
+		s++;
 	}
 
-	if(prob.bias >= 0)
+	if(prob->bias >= 0)
 	{
-		prob.n=max_index+1;
-		for(i=1;i<prob.l;i++)
-			(prob.x[i]-2)->index = prob.n; 
-		x_space[j-2].index = prob.n;
+		prob->n=max_index+1;
+		for(i=1;i<prob->l;i++)
+			(prob->x[i]-2)->index = prob->n; 
+		j = (prob->n+1)*prob->l;
+		x_space[j-2].index = prob->n;
 	}
 	else
-		prob.n=max_index;
+		prob->n=max_index;
 
 }
+
