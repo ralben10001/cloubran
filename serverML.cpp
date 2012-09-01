@@ -193,23 +193,28 @@ int main(int argc, char *argv[])
 	if (argc > 1) {
 		numVMs = atoi(argv[1]);
 	}
-	FILE* in = fopen("data.in","r");
-	FILE* in2 = fopen("net.in","r");
+	FILE* in;
+	if (argc > 2) {
+		in = fopen(argv[2],"r");
+	} else {
+		in = fopen("data1","r");
+	}
+	//FILE* in2 = fopen("net.in","r");
 	FILE *output = fopen("test.out","w");
 	char VMname[20];
 	for (int ind = 0; ind < numVMs; ind++) {
 		fscanf(in,"%s",VMname);
 		fscanf(in,"%d",&datalen);
-		fscanf(in2,"%d",&netlen);
+		//fscanf(in2,"%d",&netlen);
 		fprintf(output,"%s ", VMname);
 		data = new int[datalen];
-		net = new int[netlen];	
+		//net = new int[netlen];	
 		for (int i = 0; i < datalen; i++) {
 			fscanf(in,"%d",&data[i]);
 		}
-		for (int i = 0; i < netlen; i++) {
+		/*for (int i = 0; i < netlen; i++) {
 			fscanf(in2,"%d",&net[i]);
-		}
+		}*/
 		int n = 3;
 		int numlines = datalen-n;
 		int numruns = 1;
