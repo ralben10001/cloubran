@@ -274,8 +274,9 @@ int main(int argc, char *argv[])
 			free_and_destroy_model(&model_);
 		}
 		printf("Accuracy = %g%% (%d/%d)\n",(double) correct/total*100,correct,total);
-		fclose(output);
+		delete(classifier);
 	}
+	fclose(output);
 	return 0;
 }
 
